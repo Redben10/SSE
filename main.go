@@ -11,7 +11,7 @@ import (
 
 type Tunnel struct {
 	ID      string
-	Content string
+	Content []string // Store messages as a slice of strings
 }
 
 var tunnels = make(map[string]*Tunnel)
@@ -68,7 +68,7 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: ""}
+	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: []string{}}
 	tunnelsMutex.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -89,7 +89,7 @@ func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tunnelsMutex.Lock()
-	_, exists := tunnels[tunnelID]
+	tunnel, exists := tunnels[tunnelID]
 	if !exists {
 		tunnelsMutex.Unlock()
 		http.Error(w, "No tunnel with this id exists.", http.StatusInternalServerError)
@@ -105,6 +105,11 @@ func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
 	clientsMutex.Lock()
 	clients[tunnelID] = clientChan
 	clientsMutex.Unlock()
+
+	// Send previous messages to the client
+	for _, msg := range tunnel.Content {
+		clientChan <- msg
+	}
 
 	for {
 		select {
@@ -156,6 +161,13 @@ func sendToTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "No client connected to this tunnel.", http.StatusInternalServerError)
 		return
 	}
+
+	// Store the message in the tunnel's content
+	tunnelsMutex.Lock()
+	if tunnel, exists := tunnels[requestData.ID]; exists {
+		tunnel.Content = append(tunnel.Content, requestData.Content)
+	}
+	tunnelsMutex.Unlock()
 
 	client <- requestData.Content
 	log.Printf("Message sent to tunnel %s: %s", requestData.ID, requestData.Content)
