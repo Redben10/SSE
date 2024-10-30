@@ -90,7 +90,7 @@ func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tunnelsMutex.Lock()
-	tunnel, exists := tunnels[tunnelID]
+	_, exists := tunnels[tunnelID]
 	if !exists {
 		tunnelsMutex.Unlock()
 		http.Error(w, "No tunnel with this id exists.", http.StatusInternalServerError)
