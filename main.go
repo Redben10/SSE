@@ -5,21 +5,19 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
 	"net/http"
 	"sync"
 )
 
 type Tunnel struct {
-	ID          string
-	Content     string
-	Messages    []string // Field to store messages
-	SubChannels map[string]string
+	ID       string   `json:"id"`
+	Content  string   `json:"content"`
+	Messages []string `json:"messages"` // Field to store messages
 }
 
 var tunnels = make(map[string]*Tunnel)
 var tunnelsMutex = &sync.Mutex{}
-var clients = make(map[string]map[string][]chan string)
+var clients = make(map[string][]chan string)
 var clientsMutex = &sync.Mutex{}
 
 func main() {
@@ -90,7 +88,7 @@ func sendToTunnel(w http.ResponseWriter, r *http.Request) {
 	tunnelsMutex.Unlock()
 
 	clientsMutex.Lock()
-	for _, client := range clients[requestData.ID]["default"] {
+	for _, client := range clients[requestData.ID] {
 		client <- requestData.Content
 	}
 	clientsMutex.Unlock()
@@ -122,9 +120,9 @@ func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
 	clientChan := make(chan string)
 	clientsMutex.Lock()
 	if clients[tunnelId] == nil {
-		clients[tunnelId] = make(map[string][]chan string)
+		clients[tunnelId] = []chan string{}
 	}
-	clients[tunnelId]["default"] = append(clients[tunnelId]["default"], clientChan)
+	clients[tunnelId] = append(clients[tunnelId], clientChan)
 	clientsMutex.Unlock()
 
 	for {
@@ -134,9 +132,9 @@ func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
 			w.(http.Flusher).Flush()
 		case <-r.Context().Done():
 			clientsMutex.Lock()
-			for i, client := range clients[tunnelId]["default"] {
+			for i, client := range clients[tunnelId] {
 				if client == clientChan {
-					clients[tunnelId]["default"] = append(clients[tunnelId]["default"][:i], clients[tunnelId]["default"][i+1:]...)
+					clients[tunnelId] = append(clients[tunnelId][:i], clients[tunnelId][i+1:]...)
 					break
 				}
 			}
@@ -195,7 +193,7 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: "", Messages: []string{}, SubChannels: make(map[string]string)}
+	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: "", Messages: []string{}}
 	tunnelsMutex.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
