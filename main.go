@@ -10,9 +10,8 @@ import (
 )
 
 type Tunnel struct {
-	ID          string
-	Content     string
-	SubChannels map[string]string
+	ID      string
+	Content string
 }
 
 var tunnels = make(map[string]*Tunnel)
@@ -69,7 +68,7 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: "", SubChannels: make(map[string]string)}
+	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: ""}
 	tunnelsMutex.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
