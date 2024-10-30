@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
 	"net/http"
 	"sync"
 )
@@ -154,17 +153,36 @@ func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func createTunnel(w http.ResponseWriter, r *http.Request) {
-	tunnelId := fmt.Sprintf("%02d%c%02d%c%02d%c", rand.Intn(100), 'A'+rune(rand.Intn(26)), rand.Intn(100), 'A'+rune(rand.Intn(26)), rand.Intn(100), 'A'+rune(rand.Intn(26)))
-	tunnelsMutex.Lock()
-	tunnels[tunnelId] = &Tunnel{ID: tunnelId, Content: "", SubChannels: make(map[string]string)}
-	tunnelsMutex.Unlock()
+	var requestData struct {
+		ID string `json:"id"`
+	}
 
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	err = json.Unmarshal(body, &requestData)
+	if err != nil || requestData.ID == "" {
+		http.Error(w, "Invalid or missing tunnel id.", http.StatusBadRequest)
+		return
+	}
+
+	tunnelsMutex.Lock()
+	defer tunnelsMutex.Unlock()
+	if _, exists := tunnels[requestData.ID]; exists {
+		http.Error(w, "Tunnel ID already exists. Please choose a different ID.", http.StatusConflict)
+		return
+	}
+
+	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: "", SubChannels: make(map[string]string)}
 	w.Header().Set("Content-Type", "application/json")
-	response, err := json.Marshal(map[string]string{"id": tunnelId})
+	response, err := json.Marshal(map[string]string{"id": requestData.ID})
 	if err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
 	}
 	w.Write(response)
-	log.Printf("Tunnel %s has been created.", tunnelId)
+	log.Printf("Tunnel %s has been created.", requestData.ID)
 }
