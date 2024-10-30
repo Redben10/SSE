@@ -57,7 +57,7 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if requestData.ID == "" {
-		http.Error(w, "No tunnel id has been provided.", http.StatusBadRequest)
+		http.Error(w, "No tunnel ID has been provided.", http.StatusBadRequest)
 		return
 	}
 
@@ -84,7 +84,7 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
 	tunnelID := r.URL.Query().Get("id")
 	if tunnelID == "" {
-		http.Error(w, "No tunnel id has been provided.\nPlease use ?id= to include the tunnel id.", http.StatusBadRequest)
+		http.Error(w, "No tunnel ID has been provided.\nPlease use ?id= to include the tunnel ID.", http.StatusBadRequest)
 		return
 	}
 
@@ -92,7 +92,7 @@ func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
 	tunnel, exists := tunnels[tunnelID]
 	if !exists {
 		tunnelsMutex.Unlock()
-		http.Error(w, "No tunnel with this id exists.", http.StatusInternalServerError)
+		http.Error(w, "No tunnel with this ID exists.", http.StatusInternalServerError)
 		return
 	}
 	tunnelsMutex.Unlock()
@@ -144,7 +144,7 @@ func sendToTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if requestData.ID == "" {
-		http.Error(w, "No tunnel id has been provided.", http.StatusBadRequest)
+		http.Error(w, "No tunnel ID has been provided.", http.StatusBadRequest)
 		return
 	}
 
