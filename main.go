@@ -10,15 +10,19 @@ import (
 )
 
 type Tunnel struct {
-	ID       string   `json:"id"`
-	Content  string   `json:"content"`
-	Messages []string `json:"messages"` // Field to store messages
+	ID      string   `json:"id"`
+	Content string   `json:"content"`
+	Messages []string `json:"messages"`
 }
 
-var tunnels = make(map[string]*Tunnel)
-var tunnelsMutex = &sync.Mutex{}
-var clients = make(map[string][]chan string)
-var clientsMutex = &sync.Mutex{}
+var (
+	tunnels      = make(map[string]*Tunnel)
+	tunnelsMutex = &sync.Mutex{}
+	clients      = make(map[string][]chan string)
+	clientsMutex = &sync.Mutex{}
+)
+
+const globalTunnelID = "global"
 
 func main() {
 	log.Println("Starting server on port 2427")
@@ -26,7 +30,7 @@ func main() {
 	http.HandleFunc("/api/v2/tunnel/create", withCORS(createTunnel))
 	http.HandleFunc("/api/v2/tunnel/stream", withCORS(streamTunnelContent))
 	http.HandleFunc("/api/v2/tunnel/send", withCORS(sendToTunnel))
-	http.HandleFunc("/api/v2/tunnel/messages", withCORS(getMessages)) // New endpoint for messages
+	http.HandleFunc("/api/v2/tunnel/messages", withCORS(getMessages))
 	log.Fatal(http.ListenAndServe(":2427", nil))
 }
 
@@ -78,11 +82,16 @@ func sendToTunnel(w http.ResponseWriter, r *http.Request) {
 	tunnelsMutex.Lock()
 	tunnel, exists := tunnels[requestData.ID]
 	if !exists {
-		tunnelsMutex.Unlock()
-		http.Error(w, "No tunnel with this id exists.", http.StatusInternalServerError)
-		return
+		if requestData.ID == globalTunnelID {
+			// Create the global tunnel if it doesn't exist
+			tunnel = &Tunnel{ID: globalTunnelID, Messages: []string{}}
+			tunnels[globalTunnelID] = tunnel
+		} else {
+			http.Error(w, "Tunnel does not exist.", http.StatusNotFound)
+			tunnelsMutex.Unlock()
+			return
+		}
 	}
-
 	// Add message to tunnel messages
 	tunnel.Messages = append(tunnel.Messages, requestData.Content)
 	tunnelsMutex.Unlock()
@@ -105,11 +114,15 @@ func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tunnelsMutex.Lock()
-	_, exists := tunnels[tunnelId]
-	if !exists {
-		tunnelsMutex.Unlock()
-		http.Error(w, "No tunnel with this id exists.", http.StatusInternalServerError)
-		return
+	if _, exists := tunnels[tunnelId]; !exists {
+		if tunnelId == globalTunnelID {
+			// Create the global tunnel if it does not exist
+			tunnels[globalTunnelID] = &Tunnel{ID: globalTunnelID, Messages: []string{}}
+		} else {
+			http.Error(w, "Tunnel does not exist.", http.StatusNotFound)
+			tunnelsMutex.Unlock()
+			return
+		}
 	}
 	tunnelsMutex.Unlock()
 
@@ -187,13 +200,18 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tunnelsMutex.Lock()
+	if requestData.ID == globalTunnelID {
+		http.Error(w, "Global tunnel cannot be created manually.", http.StatusConflict)
+		tunnelsMutex.Unlock()
+		return
+	}
 	if _, exists := tunnels[requestData.ID]; exists {
 		tunnelsMutex.Unlock()
 		http.Error(w, "Tunnel ID already exists.", http.StatusConflict)
 		return
 	}
 
-	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: "", Messages: []string{}}
+	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Messages: []string{}}
 	tunnelsMutex.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
