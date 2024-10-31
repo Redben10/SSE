@@ -10,13 +10,14 @@ import (
 )
 
 type Tunnel struct {
-	ID      string
-	Content []string // Store messages as a slice of strings
+	ID          string
+	Content     string
+	SubChannels map[string]string
 }
 
 var tunnels = make(map[string]*Tunnel)
 var tunnelsMutex = &sync.Mutex{}
-var clients = make(map[string]chan string)
+var clients = make(map[string]map[string][]chan string)
 var clientsMutex = &sync.Mutex{}
 
 func main() {
@@ -50,27 +51,40 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 		ID string `json:"id"`
 	}
 
-	err := json.NewDecoder(r.Body).Decode(&requestData)
+	// Read the request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	// Unmarshal the JSON data into requestData
+	err = json.Unmarshal(body, &requestData)
 	if err != nil {
 		http.Error(w, "Failed to parse JSON", http.StatusBadRequest)
 		return
 	}
 
+	// Check if the ID is provided and not empty
 	if requestData.ID == "" {
-		http.Error(w, "No tunnel ID has been provided.", http.StatusBadRequest)
+		http.Error(w, "Tunnel ID must be provided.", http.StatusBadRequest)
 		return
 	}
 
+	// Check for uniqueness of the tunnel ID
 	tunnelsMutex.Lock()
-	if _, exists := tunnels[requestData.ID]; exists {
+	_, exists := tunnels[requestData.ID]
+	if exists {
 		tunnelsMutex.Unlock()
-		http.Error(w, "Tunnel already exists.", http.StatusConflict)
+		http.Error(w, "Tunnel ID already exists.", http.StatusConflict)
 		return
 	}
 
-	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: []string{}}
+	// Create the tunnel
+	tunnels[requestData.ID] = &Tunnel{ID: requestData.ID, Content: "", SubChannels: make(map[string]string)}
 	tunnelsMutex.Unlock()
 
+	// Respond with the created tunnel ID
 	w.Header().Set("Content-Type", "application/json")
 	response, err := json.Marshal(map[string]string{"id": requestData.ID})
 	if err != nil {
@@ -81,54 +95,11 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Tunnel %s has been created.", requestData.ID)
 }
 
-func streamTunnelContent(w http.ResponseWriter, r *http.Request) {
-	tunnelID := r.URL.Query().Get("id")
-	if tunnelID == "" {
-		http.Error(w, "No tunnel ID has been provided.\nPlease use ?id= to include the tunnel ID.", http.StatusBadRequest)
-		return
-	}
-
-	tunnelsMutex.Lock()
-	tunnel, exists := tunnels[tunnelID]
-	if !exists {
-		tunnelsMutex.Unlock()
-		http.Error(w, "No tunnel with this ID exists.", http.StatusInternalServerError)
-		return
-	}
-	tunnelsMutex.Unlock()
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	clientChan := make(chan string)
-	clientsMutex.Lock()
-	clients[tunnelID] = clientChan
-	clientsMutex.Unlock()
-
-	// Send previous messages to the client
-	for _, msg := range tunnel.Content {
-		clientChan <- msg
-	}
-
-	for {
-		select {
-		case msg := <-clientChan:
-			fmt.Fprintf(w, "data: %s\n\n", msg)
-			w.(http.Flusher).Flush()
-		case <-r.Context().Done():
-			clientsMutex.Lock()
-			delete(clients, tunnelID)
-			clientsMutex.Unlock()
-			return
-		}
-	}
-}
-
 func sendToTunnel(w http.ResponseWriter, r *http.Request) {
 	var requestData struct {
-		ID      string `json:"id"`
-		Content string `json:"content"`
+		ID         string `json:"id"`
+		Content    string `json:"content"`
+		SubChannel string `json:"subChannel"`
 	}
 
 	body, err := io.ReadAll(r.Body)
@@ -144,7 +115,7 @@ func sendToTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if requestData.ID == "" {
-		http.Error(w, "No tunnel ID has been provided.", http.StatusBadRequest)
+		http.Error(w, "No tunnel id has been provided.", http.StatusBadRequest)
 		return
 	}
 
@@ -153,23 +124,25 @@ func sendToTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientsMutex.Lock()
-	client, exists := clients[requestData.ID]
-	clientsMutex.Unlock()
-
-	if !exists {
-		http.Error(w, "No client connected to this tunnel.", http.StatusInternalServerError)
+	if requestData.SubChannel == "" {
+		http.Error(w, "No subChannel has been provided.", http.StatusBadRequest)
 		return
 	}
 
-	// Store the message in the tunnel's content
 	tunnelsMutex.Lock()
-	if tunnel, exists := tunnels[requestData.ID]; exists {
-		tunnel.Content = append(tunnel.Content, requestData.Content)
+	tunnel, exists := tunnels[requestData.ID]
+	if !exists {
+		tunnelsMutex.Unlock()
+		http.Error(w, "No tunnel with this id exists.", http.StatusInternalServerError)
+		return
 	}
+	tunnel.SubChannels[requestData.SubChannel] = requestData.Content
 	tunnelsMutex.Unlock()
 
-	client <- requestData.Content
-	log.Printf("Message sent to tunnel %s: %s", requestData.ID, requestData.Content)
-	fmt.Fprintf(w, "Message sent to tunnel %s.", requestData.ID)
-}
+	clientsMutex.Lock()
+	for _, client := range clients[requestData.ID][requestData.SubChannel] {
+		client <- requestData.Content
+	}
+	clientsMutex.Unlock()
+
+	log.Printf("Tunnel %s subChannel %s has been updated.", requestData.ID
