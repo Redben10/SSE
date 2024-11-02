@@ -22,15 +22,10 @@ var clients = make(map[string]map[string][]chan string)
 var clientsMutex = &sync.Mutex{}
 
 func main() {
-	// Initialize the global tunnel
-	tunnelsMutex.Lock()
-	tunnels["global"] = &Tunnel{ID: "global", Content: "", SubChannels: make(map[string]string)}
-	tunnelsMutex.Unlock()
-	log.Println("Global tunnel initialized.")
-
 	log.Println("Starting server on port 2427")
 	http.HandleFunc("/", withCORS(homePage))
 	http.HandleFunc("/api/v2/tunnel/create", withCORS(createTunnel))
+	http.HandleFunc("/api/v2/tunnel/checkRoomExists", withCORS(checkRoomExists))
 	http.HandleFunc("/api/v2/tunnel/stream", withCORS(streamTunnelContent))
 	http.HandleFunc("/api/v2/tunnel/send", withCORS(sendToTunnel))
 	log.Fatal(http.ListenAndServe(":2427", nil))
@@ -169,26 +164,22 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
 		return
 	}
+
 	err = json.Unmarshal(body, &requestData)
-	if err != nil {
-		http.Error(w, "Failed to parse JSON", http.StatusBadRequest)
+	if err != nil || requestData.ID == "" {
+		http.Error(w, "Invalid room ID", http.StatusBadRequest)
 		return
 	}
 
-	// Check if the requested tunnel ID is "global" and prevent overriding
-	tunnelId := requestData.ID
-	if tunnelId == "global" {
-		http.Error(w, "The 'global' tunnel already exists and cannot be recreated.", http.StatusConflict)
-		return
-	}
-
-	// Generate a random ID if no ID is provided
-	if tunnelId == "" {
-		tunnelId = fmt.Sprintf("%02d%c%02d%c%02d%c", rand.Intn(100), 'A'+rune(rand.Intn(26)), rand.Intn(100), 'A'+rune(rand.Intn(26)), rand.Intn(100), 'A'+rune(rand.Intn(26)))
-	}
-
-	// Create the tunnel
 	tunnelsMutex.Lock()
+	_, exists := tunnels[requestData.ID]
+	if exists {
+		tunnelsMutex.Unlock()
+		http.Error(w, "Room already exists. Try joining it instead.", http.StatusBadRequest)
+		return
+	}
+
+	tunnelId := requestData.ID
 	tunnels[tunnelId] = &Tunnel{ID: tunnelId, Content: "", SubChannels: make(map[string]string)}
 	tunnelsMutex.Unlock()
 
@@ -200,4 +191,29 @@ func createTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Write(response)
 	log.Printf("Tunnel %s has been created.", tunnelId)
+}
+
+func checkRoomExists(w http.ResponseWriter, r *http.Request) {
+	var requestData struct {
+		ID string `json:"id"`
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+		return
+	}
+
+	err = json.Unmarshal(body, &requestData)
+	if err != nil || requestData.ID == "" {
+		http.Error(w, "Invalid room ID", http.StatusBadRequest)
+		return
+	}
+
+	tunnelsMutex.Lock()
+	_, exists := tunnels[requestData.ID]
+	tunnelsMutex.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"exists": exists})
 }
