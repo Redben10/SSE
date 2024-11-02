@@ -20,7 +20,14 @@ var tunnelsMutex = &sync.Mutex{}
 var clients = make(map[string]map[string][]chan string)
 var clientsMutex = &sync.Mutex{}
 
+const globalRoomId = "global"
+
 func main() {
+	// Create the global room on startup
+	tunnelsMutex.Lock()
+	tunnels[globalRoomId] = &Tunnel{ID: globalRoomId, Content: "", SubChannels: make(map[string]string)}
+	tunnelsMutex.Unlock()
+
 	log.Println("Starting server on port 2427")
 	http.HandleFunc("/", withCORS(homePage))
 	http.HandleFunc("/api/v2/tunnel/create", withCORS(createTunnel))
