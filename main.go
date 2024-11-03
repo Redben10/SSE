@@ -21,10 +21,7 @@ var tunnelsMutex = &sync.Mutex{}
 var clients = make(map[string]map[string][]chan string)
 var clientsMutex = &sync.Mutex{}
 
-const (
-	globalRoomId = "global"
-	serverURL    = "http://localhost:2427/" // Replace with your server's actual URL
-)
+const globalRoomId = "global"
 
 func main() {
 	// Create the global room on startup
@@ -32,7 +29,7 @@ func main() {
 	tunnels[globalRoomId] = &Tunnel{ID: globalRoomId, Content: "", SubChannels: make(map[string]string)}
 	tunnelsMutex.Unlock()
 
-	// Start background ping goroutine
+	// Start the keep-alive goroutine
 	go keepServerAlive()
 
 	log.Println("Starting server on port 2427")
@@ -45,19 +42,17 @@ func main() {
 }
 
 func keepServerAlive() {
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(10 * time.Minute) // Set the interval to 10 minutes
 	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			resp, err := http.Get(serverURL)
-			if err != nil {
-				log.Printf("Failed to ping the server: %v", err)
-			} else {
-				resp.Body.Close()
-				log.Println("Server pinged successfully.")
-			}
+
+	for range ticker.C {
+		resp, err := http.Get("http://localhost:2427/") // Ping the server's home page
+		if err != nil {
+			log.Printf("Failed to ping the server: %v", err)
+			continue
 		}
+		resp.Body.Close()
+		log.Println("Pinged server to keep it alive")
 	}
 }
 
