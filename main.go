@@ -42,7 +42,7 @@ func main() {
 }
 
 func keepServerAlive() {
-	ticker := time.NewTicker(10 * time.Minute) // Set the interval to 10 minutes
+	ticker := time.NewTicker(1 * time.Minute) // Set the interval to 10 minutes
 	defer ticker.Stop()
 
 	for range ticker.C {
