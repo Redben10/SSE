@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 )
 
 type Tunnel struct {
@@ -20,13 +21,19 @@ var tunnelsMutex = &sync.Mutex{}
 var clients = make(map[string]map[string][]chan string)
 var clientsMutex = &sync.Mutex{}
 
-const globalRoomId = "global"
+const (
+	globalRoomId = "global"
+	serverURL    = "http://localhost:2427/" // Replace with your server's actual URL
+)
 
 func main() {
 	// Create the global room on startup
 	tunnelsMutex.Lock()
 	tunnels[globalRoomId] = &Tunnel{ID: globalRoomId, Content: "", SubChannels: make(map[string]string)}
 	tunnelsMutex.Unlock()
+
+	// Start background ping goroutine
+	go keepServerAlive()
 
 	log.Println("Starting server on port 2427")
 	http.HandleFunc("/", withCORS(homePage))
@@ -35,6 +42,23 @@ func main() {
 	http.HandleFunc("/api/v2/tunnel/stream", withCORS(streamTunnelContent))
 	http.HandleFunc("/api/v2/tunnel/send", withCORS(sendToTunnel))
 	log.Fatal(http.ListenAndServe(":2427", nil))
+}
+
+func keepServerAlive() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			resp, err := http.Get(serverURL)
+			if err != nil {
+				log.Printf("Failed to ping the server: %v", err)
+			} else {
+				resp.Body.Close()
+				log.Println("Server pinged successfully.")
+			}
+		}
+	}
 }
 
 func homePage(w http.ResponseWriter, r *http.Request) {
