@@ -20,6 +20,7 @@ func main() {
 
     port := ":10000"
     fmt.Printf("Server is running on http://localhost%s\n", port)
+    go broadcastMessages() // Start the message broadcasting goroutine
     log.Fatal(http.ListenAndServe(port, nil))
 }
 
@@ -33,11 +34,17 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
     clients[clientChan] = true
     defer delete(clients, clientChan)
 
+    flusher, ok := w.(http.Flusher)
+    if !ok {
+        http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+        return
+    }
+
     for {
         select {
         case msg := <-clientChan:
             fmt.Fprintf(w, "data: %s\n\n", msg)
-            w.(http.Flusher).Flush()
+            flusher.Flush()
         case <-r.Context().Done():
             return
         }
@@ -67,13 +74,17 @@ func handleSend(w http.ResponseWriter, r *http.Request) {
     response := strings.TrimSpace(string(output))
     messageChannel <- response
 
-    for clientChan := range clients {
-        select {
-        case clientChan <- response:
-        default:
-            // Client is not ready to receive, skip it
+    w.WriteHeader(http.StatusOK)
+}
+
+func broadcastMessages() {
+    for msg := range messageChannel {
+        for clientChan := range clients {
+            select {
+            case clientChan <- msg:
+            default:
+                // Client is not ready to receive, skip it
+            }
         }
     }
-
-    w.WriteHeader(http.StatusOK)
 }
