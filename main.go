@@ -1,7 +1,6 @@
 package main
 
 import (
-    "bufio"
     "fmt"
     "log"
     "net/http"
@@ -19,8 +18,9 @@ func main() {
     http.HandleFunc("/send", handleSend)
     http.Handle("/", http.FileServer(http.Dir("."))) // Serve static files
 
-    fmt.Println("Server is running on http://localhost:8080")
-    log.Fatal(http.ListenAndServe(":8080", nil))
+    port := ":10000"
+    fmt.Printf("Server is running on http://localhost%s\n", port)
+    log.Fatal(http.ListenAndServe(port, nil))
 }
 
 func handleSSE(w http.ResponseWriter, r *http.Request) {
